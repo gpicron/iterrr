@@ -13,3 +13,11 @@ iterator mritems*[T](o: var openArray[T]): var T =
 iterator mrpairs*[T](o: var openArray[T]): (int, var T) =
   for i in countdown(o.high, o.low):
     yield (i, o[i])
+
+iterator just*[T](args: varargs[T]): T =
+  when varargsLen(args) == 1:
+    let e = args[0]
+    yield e
+  else:
+    for e in args:
+      yield e
