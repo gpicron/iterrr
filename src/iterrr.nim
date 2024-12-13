@@ -13,7 +13,7 @@ export reducers, iterators, adapters
 
 type
   HigherOrderCallers = enum
-    hoMap, hoFilter, hoBreakIf, hoInject, hoCustom
+    hoMap, hoFilter, hoBreakIf, hoInject, hoCustom, hoConcatMap
 
   HigherOrderCall = object
     case kind: HigherOrderCallers
@@ -119,6 +119,7 @@ func toIterrrPack(calls: seq[NimNode]): IterrrPack =
     of "inject": addToCallChain hoInject
     of "filter": addToCallChain hoFilter
     of "breakif": addToCallChain hoBreakIf
+    of "concatMap": addToCallChain hoConcatMap
 
     elif i == calls.high: # reducer
       hasReducer = true
@@ -133,6 +134,7 @@ func toIterrrPack(calls: seq[NimNode]): IterrrPack =
         kind: hoCustom,
         name: ident caller,
         params: n[CallArgs])
+  
 
   expect hasReducer, "must set reducer"
 
@@ -219,7 +221,8 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
     uniqLoopIdent = ident "li" & genUniqId()
     reducerIdent = ipack.reducer.caller
 
-    hasCustomCode = reducerIdent ~= "each"
+    isIteratorReducer = reducerIdent ~= "iter"
+    hasCustomCode = reducerIdent ~= "each" or isIteratorReducer
     hasCustomReducer = reducerIdent ~= "reduce"
 
     accIdent =
@@ -228,9 +231,15 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
       else:
         ident "iterrrAcc" & genUniqId()
 
+  let customCode = if isIteratorReducer:
+      quote:
+        yield it
+    else:
+      code
 
   if hasCustomCode or hasCustomReducer:
-    expect code != nil, "where's the code?"
+    expect customCode != nil, "where's the code?"
+  
 
   var
     tmplts = newStmtList()
@@ -238,7 +247,12 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
     loopBody =
       if hasCustomCode:
         let id = ident "iterrrBody" & genUniqId()
-        tmplts.add newDirtyTemplate(id, (ipack.reducer.params or @[ident "it"]).map toUntypedIdentDef, code)
+        let args = if isIteratorReducer:
+          @[ident "it"]
+        else:
+          ipack.reducer.params or @[ident "it"]
+
+        tmplts.add newDirtyTemplate(id, args.map toUntypedIdentDef, customCode)
         makeAliasCallWith id, ipack.reducer.params or @[uniqLoopIdent], uniqLoopIdent
 
       elif hasCustomReducer:
@@ -246,7 +260,7 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
           id = ident "iterrrBody" & genUniqId()
           args = extractIdents ipack.reducer.params[0]
 
-        tmplts.add newDirtyTemplate(id, args.map toUntypedIdentDef, code)
+        tmplts.add newDirtyTemplate(id, args.map toUntypedIdentDef, customCode)
         makeAliasCallWith id, args, uniqLoopIdent
 
       else:
@@ -264,7 +278,16 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
         replacedIteratorIdents(call.expr,
           call.iteratorIdentAliases or @[ident "it"],
           uniqLoopIdent)
+      of hoConcatMap:
+        let
+          body = call.expr
+          tname = ident "iterrrIter" & genUniqId()
+          args = (call.iteratorIdentAliases or @[ident "it"]).map:
+            toUntypedIdentDef
 
+        tmplts.add newDirtyTemplate(tname, args, body)
+        call.expr = makeAliasCallWith(tname, args, uniqLoopIdent)
+        call.expr
       else:
         let
           body = call.expr
@@ -283,6 +306,11 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
           block:
             let `uniqLoopIdent` = `e`
             `loopBody`
+      of hoConcatMap:
+        quote:
+          block:
+            for `uniqLoopIdent` in `e`:
+              `loopBody`
 
       of hoFilter:
         quote:
@@ -372,13 +400,40 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
 
       w.code
 
-  result = quote: # final structure
-    block:
-      `tmplts`
-      `accDef`
-      block `mainLoopIdent`:
-        `result`
-      `accFinalizeCall`
+  if isIteratorReducer:
+    if ipack.reducer.params.len > 0:
+      let iterName = ident $ipack.reducer.params[0]
+      
+      result = quote: # final structure
+        `tmplts`
+        iterator `iterName`(): auto =
+          `accDef`
+          block `mainLoopIdent`:
+            `result`
+          `accFinalizeCall`
+
+    else:
+      let dtype = detectType(itrbl, uniqLoopIdent, ipack.callChain)
+      let iterName = ident ("iterrrIter" & genUniqId())
+
+      result = quote: # final structure
+        block:
+          `tmplts`
+          proc `iterName`(): iterator(): `dtype` =
+            return iterator(): `dtype` =
+              `accDef`
+              block `mainLoopIdent`:
+                `result`
+              `accFinalizeCall`
+          `iterName`()
+  else:
+    result = quote: # final structure
+      block:
+        `tmplts`
+        `accDef`
+        block `mainLoopIdent`:
+          `result`
+        `accFinalizeCall`
 
   when defined iterrrDebug:
     debugEcho "---------------------------"

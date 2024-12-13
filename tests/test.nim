@@ -303,3 +303,35 @@ suite "Inside template":
 
     let r = (0 .. 10).items.countGreaterThan(6)
     check r == 4
+
+import std/macros
+
+suite "toIter":
+
+  test "toIter":
+    (1..5) |> map(it * it).iter(myiter)
+
+    check toSeq(myiter) == @[1, 4, 9, 16, 25]
+
+  test "toIterB":
+    (1..5) |> map(it * it).iter("myiterB")
+
+    check toSeq(myiterB) == @[1, 4, 9, 16, 25]
+
+  test "concatmap iterator":
+    expandMacros:
+      let x = (1..5) |> concatMap( countup(0, it) ).toSeq()
+
+    check x == @[0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5]
+  
+  test "concatmap iterrr iterator":
+    expandMacros:
+      let x = (1..5) |> concatMap( just(it) |> iter() ).toSeq()
+
+    check x == @[1, 2, 3, 4, 5]
+  
+  test "concatmap iterrr iterator-b":
+    expandMacros:
+      let x = (1..5) |> concatMap( just(it) |> map(it*2).iter() ).toSeq()
+
+    check x == @[2, 4, 6, 8, 10]
