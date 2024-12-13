@@ -10,3 +10,4 @@ srcDir        = "src"
 
 requires "nim >= 1.6.4"
 requires "macroplus >= 0.2.3"
+requires "benchy"
