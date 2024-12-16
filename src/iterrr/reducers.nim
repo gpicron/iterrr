@@ -159,3 +159,17 @@ func toCountTableUpdate*[T](res: var CountTable[T], n: T): bool =
   true
 
 template toCountTableFinalizer*(n): untyped = n
+
+# --------------------------------------
+type ToChannelState[T] = object
+  ch: ptr Channel[T]
+
+
+func toChannelInit*[T](ch: ptr Channel[T]): ToChannelState[T] = 
+  ToChannelState[T](ch: ch)
+
+proc toChannelUpdate*[T](res: var ToChannelState[T], n: T): bool =
+  res.ch[].send n
+  true
+
+template toChannelFinalizer*(n): untyped = n.ch

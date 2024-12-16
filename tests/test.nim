@@ -1,5 +1,6 @@
 import std/[unittest, tables, sets, sequtils, strutils, math]
 import iterrr
+import std/asyncdispatch
 
 
 suite "main entities":
@@ -319,19 +320,60 @@ suite "toIter":
     check toSeq(myiterB) == @[1, 4, 9, 16, 25]
 
   test "concatmap iterator":
-    expandMacros:
-      let x = (1..5) |> concatMap( countup(0, it) ).toSeq()
+    let x = (1..5) |> concatMap( countup(0, it) |> iter() ).toSeq()
 
     check x == @[0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5]
   
   test "concatmap iterrr iterator":
-    expandMacros:
-      let x = (1..5) |> concatMap( just(it) |> iter() ).toSeq()
+    let x = (1..5) |> concatMap( just(it) |> iter() ).toSeq()
 
     check x == @[1, 2, 3, 4, 5]
   
   test "concatmap iterrr iterator-b":
-    expandMacros:
-      let x = (1..5) |> concatMap( just(it) |> map(it*2).iter() ).toSeq()
+    let x = (1..5) |> concatMap( just(it) |> map(it*2).iter() ).toSeq()
 
     check x == @[2, 4, 6, 8, 10]
+
+suite "toChannel":
+
+  setup:
+    var channel = cast[ptr Channel[int]](allocShared0(sizeof(Channel[int])))
+    channel[].open()
+
+  teardown:
+    channel[].close()
+    deallocShared(channel)
+
+  test "toChannel":
+    proc worker(channel: ptr Channel[int]) =
+      while true:
+        let v = channel[].recv()
+        echo "received: ", v
+
+        if v == 25:
+          break
+    
+    var thread: Thread[ptr Channel[int]]
+    createThread(thread, worker, channel)
+
+    discard (1..5) |> map(it * it).toChannel(channel)
+
+    thread.joinThread()
+
+suite "async":
+
+
+  test "async":
+
+    expandMacros:
+      proc time2(n: int): Future[int] {.async.} =
+        await sleepAsync(100)
+        result = n * 2
+      
+      proc worker() : Future[int] {.async.} =
+        result = (1..5) |> map(time2(it)).map(await it).sum()        
+    
+      let r = waitFor worker()
+
+    check r == 30
+   
