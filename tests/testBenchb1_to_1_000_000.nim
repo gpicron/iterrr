@@ -1,7 +1,7 @@
 import benchy
 import iterrr
 import sugar
-import std/sequtils
+import std/[sequtils, macros]
 
 var acc = 0
 
@@ -38,6 +38,20 @@ timeIt "iterrr-iter":
   for i in myiter():
     acc.inc i
 
+timeIt "iterrr-concatMap":
+  expandMacros:
+    (1..1_000_000) |>
+      concatMap( just(it) |>
+                    filter(x => x mod 2 == 0).
+                    filter(x => x mod 4 == 0).
+                    filter(x => x mod 8 == 0).
+                    filter(x => x mod 16000 == 0).iter()
+      ).
+      map(x => x div 16).
+      iter(myiter)
+
+  for i in myiter():
+    acc.inc i
 
 timeIt "manual":
   for i in 1..1_000_000:

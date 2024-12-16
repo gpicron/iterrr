@@ -419,13 +419,12 @@ proc iterrrImpl(itrbl: NimNode, calls: seq[NimNode],
       result = quote: # final structure
         block:
           `tmplts`
-          proc `iterName`(): iterator(): `dtype` =
-            return iterator(): `dtype` =
-              `accDef`
-              block `mainLoopIdent`:
-                `result`
-              `accFinalizeCall`
-          `iterName`()
+          iterator `iterName`(): `dtype` {.closure.} =
+            `accDef`
+            block `mainLoopIdent`:
+              `result`
+            `accFinalizeCall`
+          `iterName`
   else:
     result = quote: # final structure
       block:
